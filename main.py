@@ -21,7 +21,11 @@ client = Groq(api_key=API_KEY)
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
 # Render par hum credentials.json ko direct file ki tarah use karenge
-creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+creds_json = os.getenv("GOOGLE_CREDENTIALS")
+if not creds_json:
+    raise ValueError("GOOGLE_CREDENTIALS environment variable is missing!")
+creds_dict = json.loads(creds_json)
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 gs_client = gspread.authorize(creds)
 sheet = gs_client.open(SHEET_NAME).sheet1
 
