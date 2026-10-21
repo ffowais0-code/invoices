@@ -5,4 +5,11 @@ pdfplumber
 gspread
 oauth2client
 python-dotenv
+groqfastapi[standard]
+uvicorn
+python-multipart
+pdfplumber
+gspread
+oauth2client
+python-dotenv
 groq
