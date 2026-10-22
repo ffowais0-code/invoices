@@ -19,15 +19,14 @@ client = Groq(api_key=API_KEY)
 
 # Google Sheets Setup
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-
-# Render par hum credentials.json ko direct file ki tarah use karenge
 creds_json = os.getenv("GOOGLE_CREDENTIALS")
+
 if not creds_json:
     raise ValueError("GOOGLE_CREDENTIALS environment variable is missing!")
+    
 creds_dict = json.loads(creds_json)
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 gs_client = gspread.authorize(creds)
-sheet = gs_client.open(SHEET_NAME).sheet1
 
 @app.post("/extract")
 async def extract_invoice(file: UploadFile = File(...)):
@@ -35,15 +34,15 @@ async def extract_invoice(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed")
     
     try:
-        # PDF file ko memory mein read karein
+        # 1. PDF Read Karein
         contents = await file.read()
         text = ""
         
-        # pdfplumber memory se file padhta hai
         with pdfplumber.open(io.BytesIO(contents)) as pdf:
             for page in pdf.pages:
                 text += page.extract_text() or ""
 
+        # 2. Groq LLM se Data Extract Karwayein
         prompt = f"""
         Extract the following details from this invoice text. Return ONLY a valid JSON object.
         Fields: vendor_name, invoice_number, invoice_date, due_date, total_amount, currency, confidence_score (0 to 1).
@@ -54,27 +53,67 @@ async def extract_invoice(file: UploadFile = File(...)):
         """
         
         response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
+            model="llama-3.3-70b-versatile", # Ya jo model aap use kar rahe hain
             messages=[{"role" : "user", "content" : prompt}],
             response_format={"type":"json_object"}
         )
         
         data = json.loads(response.choices[0].message.content)
         
-        # Data Google Sheet mein save karein
+        # 3. Google Sheets aur Tabs Open Karein
+        spreadsheet = gs_client.open(SHEET_NAME)
+        valid_sheet = spreadsheet.worksheet("Valid")
+        review_sheet = spreadsheet.worksheet("Needs Review")
+        log_sheet = spreadsheet.worksheet("Processing_Log")
+
+        # 4. Duplicate Check (Invoice Number column B mein check karein)
+        invoice_num = data.get("invoice_number", "")
+        existing_invoices = valid_sheet.col_values(2) # Column B
+        
+        if invoice_num and invoice_num in existing_invoices:
+            # Log mein Duplicate Likh Dein
+            log_sheet.append_row([
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+                file.filename, 
+                "Duplicate", 
+                invoice_num, 
+                "Invoice already exists in Valid tab"
+            ])
+            return {"status": "duplicate", "filename": file.filename, "message": "Invoice already processed"}
+
+        # 5. Data ki Row Tayyar Karein
+        confidence = data.get("confidence_score", 0)
         row = [
             data.get("vendor_name", ""),
-            data.get("invoice_number", ""),
+            invoice_num,
             data.get("invoice_date", ""),
             data.get("due_date", ""),
             data.get("total_amount", ""),
             data.get("currency", ""),
-            "Processed" if data.get("confidence_score", 0) > 0.85 else "Needs Review",
+            "Processed" if confidence >= 0.85 else "Needs Review",
             file.filename,
-            data.get("confidence_score", 0),
+            confidence,
             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ]
-        sheet.append_row(row)
+
+        # 6. Routing (Confidence ke hisaab se tab mein data daalein)
+        if confidence >= 0.85:
+            valid_sheet.append_row(row)
+            log_status = "Success"
+            log_msg = "Added to Valid tab"
+        else:
+            review_sheet.append_row(row)
+            log_status = "Needs Review"
+            log_msg = "Added to Needs Review tab (Low Confidence)"
+
+        # 7. Processing Log Mein Entry Karein
+        log_sheet.append_row([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 
+            file.filename, 
+            log_status, 
+            invoice_num, 
+            log_msg
+        ])
         
         return {"status": "success", "filename": file.filename, "data": data}
 
