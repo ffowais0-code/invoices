@@ -97,7 +97,7 @@ async def extract_invoice(file: UploadFile = File(...)):
         ]
 
         # 6. Routing (Confidence ke hisaab se tab mein data daalein)
-        if confidence >= 0.85:
+        if confidence >= 1.01:
             valid_sheet.append_row(row)
             log_status = "Success"
             log_msg = "Added to Valid tab"
