@@ -1,16 +1,22 @@
-# Python virtual environment
-.venv/
-venv/
-
-# Environment variables (Secret Keys)
+# Secrets
 .env
-
-# Google Credentials (Service Account)
 credentials.json
+client_secret*.json
+session.json
 
-# Python cache
+# Python
 __pycache__/
 *.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
 
-# Test PDFs (taaki GitHub par bhaari files na jayein)
-*.pdf
+# Logs / OS
+*.log
+.DS_Store
+Thumbs.db
+
+# Samples with real data
+samples/private/
